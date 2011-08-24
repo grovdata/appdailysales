@@ -6,9 +6,13 @@ AppDailySales is a Python script that will download daily sales report files fro
 
 AppDailySales can be used as a stand-alone program or as part of another script.
 
+The Autoingestion Java program provided by Apple is required to run the script. Because redistribution is not permitted, please see the [iTunes Connect Sales and Trends Guide][itc-guide] for instructions on obtaining Autoingestion.  The Appingestion.class file should be placed in the same directory as appdailysales.py.
+
+[itc-guide]: http://www.apple.com/itunesnews/docs/AppStoreReportingInstructions.pdf
+
 ## Use as Stand-alone Program
 
-Download the script appdailysales.py and run the command line:
+Download the script appdailysales.py, install Autoingestion.class, and run the command line:
 
 **python appdailysales.py**
 
@@ -17,6 +21,7 @@ Download the script appdailysales.py and run the command line:
     -h     : print this help message and exit (also --help)
     -a uid : your apple id (also --appleId)
     -p pwd : your password (also --password)
+    -v vid : your vendor id (also --vendorId)
     -P     : read the password from stdin (also --passwordStdin)
     -o dir : directory where download file is stored, default is the current working directory (also --outputDirectory)
     -v     : verbose output, default is off (also --verbose)
@@ -44,6 +49,7 @@ As of Version 1.3 the AppDailySales script can be used as part of another script
       options = appdailysales.ReportOptions()
       options.appleId = 'Your Apple Id'
       options.password = 'Your Password'
+      options.vendorId = 'Your vendor Id'
       options.outputDirectory = ''
       options.unzipFile = False
       options.verbose = False
@@ -60,9 +66,9 @@ The function **appdailysales.downloadFile** will return the name of the last fil
 
 ## Download Reports Multiple Days
 
-As of version 1.6, there is a -d (also --days) option that is used to specify the number of days to download.  The default is 1, which will download yesterday's report and keeps the script backwards compatible with the previous versions. Any value can be used for this option.  However please note that as of now Apple only stores the last 7 days of daily sales reports.  Using a value greater than 7 will result in a "report not available" error. 
+As of version 1.6, there is a -d (also --days) option that is used to specify the number of days to download.  The default is 1, which will download yesterday's report and keeps the script backwards compatible with the previous versions. Any value can be used for this option.  However please note that as of now Apple only stores the last 14 days of daily sales reports.  Using a value greater than 14 will result in a "report not available" error. 
 
-Why not add a check in the script to prevent values greater than 7? I decided not to include the check on the off chance Apple decides to provide access to reports older than 7 days.  
+Why not add a check in the script to prevent values greater than 14? I decided not to include the check on the off chance Apple decides to provide access to reports older than 14 days.  
 
 ## Report File Name Formatting
 
@@ -72,13 +78,17 @@ By default, the report file is compressed. When using the -f option, be sure to 
 
 ## What Version of Python
 
-The script was written for and has been tested with **Python version 2.5.x, 2.6.x, and 2.7.x**. It is doubtful the script will work with Python 3.x without some tweaking.
+The script was written for and has been tested with **2.7.x**. It is doubtful the script will work with Python 3.x without some tweaking.
 
 ## Debugging the Script
 
-Version 2.4 introduces the new --debug flag. This flag will display additional verbose output for debugging and troubleshooting the script. Also, when this flag is turned on and the script encounters a screen scraping error, a file named temp.html is created and stored in the output directory. This file contains the HTML downloaded in the last web request.
+Version 2.4 introduces the new --debug flag. This flag will display additional verbose output for debugging and troubleshooting the script.
 
 # Change History
+
+**Version 3.0**
+
+  * Use Apple's Autoingestion Java program instead of screen scraping.
 
 **Version 2.8**
 

@@ -5,7 +5,7 @@
 # iTune Connect Daily Sales Reports Downloader
 # Copyright 2008-2011 Kirby Turner
 #
-# Version 2.8
+# Version 3.0
 #
 # Latest version and additional information available at:
 #   http://appdailysales.googlecode.com/
@@ -16,10 +16,8 @@
 # in the same directory containing the script file.  Note: if
 # the download file already exists then it will be overwritten.
 #
-# The iTunes Connect web site has dynamic urls and form field
-# names.  In other words, these values change from session to
-# session.  So to get to the download file we must navigate  
-# the site and webscrape the pages.  Joy, joy.
+# As of version 3.0, this script uses Apple's Autoingestion Java
+# program. As such, it no longer does screen scraping.
 #
 #
 # Contributors:
@@ -54,6 +52,7 @@
 # -- or use the command line options.               --
 appleId = 'Your Apple Id'
 password = 'Your Password'
+vendorId = 'Your Vendor Id'
 outputDirectory = ''
 unzipFile = False
 verbose = False
@@ -63,19 +62,13 @@ outputFormat = None
 debug = False
 # ----------------------------------------------------
 
-
-import urllib
-import urllib2
-import cookielib
 import datetime
-import re
 import getopt
 import sys
 import os
 import gzip
-import StringIO
-import traceback
 import getpass
+import subprocess
 
 
 class ITCException(Exception):
@@ -105,6 +98,8 @@ class ReportOptions:
             return appleId
         elif attrname == 'password':
             return password
+        elif attrname == 'venderId':
+            return vendorId
         elif attrname == 'outputDirectory':
             return outputDirectory
         elif attrname == 'unzipFile':
@@ -129,6 +124,7 @@ Options and arguments:
 -h     : print this help message and exit (also --help)
 -a uid : your apple id (also --appleId)
 -p pwd : your password (also --password)
+-V vid : your vendor id (also --venderId)
 -P     : read the password from stdin (also --passwordStdin)
 -o dir : directory where download file is stored, default is the current working directory (also --outputDirectory)
 -v     : verbose output, default is off (also --verbose)
@@ -142,6 +138,7 @@ Options and arguments:
 def processCmdArgs():
     global appleId
     global password
+    global vendorId
     global outputDirectory
     global unzipFile
     global verbose
@@ -153,7 +150,7 @@ def processCmdArgs():
     # Check for command line options. The command line options
     # override the globals set above if present.
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], 'ha:p:Po:uvd:D:f:', ['help', 'appleId=', 'password=', 'passwordStdin', 'outputDirectory=', 'unzip', 'verbose', 'days=', 'date=', 'format=', 'debug'])
+        opts, args = getopt.getopt(sys.argv[1:], 'ha:p:V:Po:uvd:D:f:', ['help', 'appleId=', 'password=', 'venderId=', 'passwordStdin', 'outputDirectory=', 'unzip', 'verbose', 'days=', 'date=', 'format=', 'debug'])
     except getopt.GetoptError, err:
         #print help information and exit
         print str(err)  # will print something like "option -x not recongized"
@@ -168,6 +165,8 @@ def processCmdArgs():
             appleId = a
         elif o in ('-p', '--password'):
             password = a
+        elif o in ('-V', '--venderId'):
+            vendorId = a
         elif o in ('-P', '--passwordStdin'):
             password = getpass.getpass()
         elif o in ('-o', '--outputDirectory'):
@@ -189,189 +188,12 @@ def processCmdArgs():
             assert False, 'unhandled option'
 
 
-# There is an issue with Python 2.5 where it assumes the 'version'
-# cookie value is always interger.  However, itunesconnect.apple.com
-# returns this value as a string, i.e., "1" instead of 1.  Because
-# of this we need a workaround that "fixes" the version field.
-#
-# More information at: http://bugs.python.org/issue3924
-class MyCookieJar(cookielib.CookieJar):
-    def _cookie_from_cookie_tuple(self, tup, request):
-        name, value, standard, rest = tup
-        version = standard.get('version', None)
-        if version is not None:
-            version = version.replace('"', '')
-            standard["version"] = version
-        return cookielib.CookieJar._cookie_from_cookie_tuple(self, tup, request)
-
-
-def showCookies(cj):
-    for index, cookie in enumerate(cj):
-        print index, ' : ', cookie
-    
-
-def readHtml(opener, url, data=None, options=None):
-    request = urllib2.Request(url, data)
-    urlHandle = opener.open(request)
-    html = urlHandle.read()
-    if options and options.debug:
-        f = open(os.path.join(options.outputDirectory, 'temp.html'), 'w')
-        try:
-            f.write(html)
-        finally:
-            f.close()
-    return html
-
-
 def downloadFile(options):
-    if options.verbose == True:
+    if options.verbose:
         print '-- begin script --'
 
     if (options.outputDirectory != '' and not os.path.exists(options.outputDirectory)):
         os.makedirs(options.outputDirectory)
-
-    urlITCBase = 'https://itunesconnect.apple.com%s'
-
-    cj = MyCookieJar();
-    cj.set_policy(cookielib.DefaultCookiePolicy(rfc2965=True))
-    opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
-
-    if options.verbose == True:
-        print 'Signing into iTunes Connect web site.'
-
-    # Go to the iTunes Connect website and retrieve the
-    # form action for logging into the site.
-    urlWebsite = urlITCBase % '/WebObjects/iTunesConnect.woa'
-    html = readHtml(opener, urlWebsite, options=options)
-    match = re.search('" action="(.*)"', html)
-    urlActionLogin = urlITCBase % match.group(1)
-
-
-    # Login to iTunes Connect web site and go to the sales 
-    # report page, get the form action url and form fields.  
-    # Note the sales report page will actually load a blank 
-    # page that redirects to the static URL. Best guess here 
-    # is that the server is setting some session variables 
-    # or something.
-    webFormLoginData = urllib.urlencode({'theAccountName':options.appleId, 'theAccountPW':options.password, '1.Continue':'0'})
-    html = readHtml(opener, urlActionLogin, webFormLoginData, options=options)
-    if (html.find('Your Apple ID or password was entered incorrectly.') != -1):
-        raise ITCException, 'User or password incorrect.'
-
-    # Find the Sales and Trends URL.
-    if options.verbose == True:
-        print 'Accessing Sales and Trends reporting web site.'
-    
-    # Sometimes the vendor default page does not load right away.
-    # This causes the script to fail, so as a work around, the
-    # script will attempt to load the page 3 times before abend.
-    vendorDefaultPageAttempts = 3
-    while vendorDefaultPageAttempts > 0:
-        vendorDefaultPageAttempts = vendorDefaultPageAttempts - 1
-        urlSalesAndTrends = 'https://reportingitc.apple.com/'
-        html = readHtml(opener, urlSalesAndTrends, options=options)
-
-        # We're at the vendor default page. Might need additional work if your account
-        # has more than one vendor.
-        try:
-            match = re.findall('"javax.faces.ViewState" value="(.*?)"', html)
-            viewState = match[0]
-            match = re.findall('script id="defaultVendorPage:(.*?)"', html)
-            defaultVendorPage = match[0]
-            ajaxName = re.sub('_2', '_0', defaultVendorPage)
-            if options.debug == True:
-                print 'viewState: ', viewState
-                print 'defaultVendorPage: ', defaultVendorPage
-                print 'ajaxName: ', ajaxName
-            vendorDefaultPageAttempts = 0 # exit loop
-        except:
-            if vendorDefaultPageAttempts < 1:
-                errMessage = 'Unable to load default vendor page.'
-                if options.verbose == True:
-                    print errMessage
-                    raise
-                else:
-                    raise ITCException, errMessage
-
-    # This may seem confusing because we just accessed the vendor default page in the 
-    # code above. However, the vendor default page as a piece of javascript that runs
-    # once the page is loaded in the browser. The javascript does a resubmit. My guess
-    # is this action is needed to set the default vendor on the server-side. Regardless
-    # we must call the page again but no parsing of the HTML is needed this time around.
-    urlDefaultVendorPage = 'https://reportingitc.apple.com/vendor_default.faces'
-    webFormSalesReportData = urllib.urlencode({'AJAXREQUEST':ajaxName, 'javax.faces.ViewState':viewState, 'defaultVendorPage':defaultVendorPage, 'defaultVendorPage:'+defaultVendorPage:'defaultVendorPage:'+defaultVendorPage})
-    html = readHtml(opener, urlDefaultVendorPage, webFormSalesReportData, options=options)
-
-    # Check for notification messages.
-    urlDashboard = 'https://reportingitc.apple.com/subdashboard.faces'
-    html = readHtml(opener, urlDashboard, options=options)
-    try:
-        # Note the (?s) is an inline re.DOTALL, makes . match new lines.
-        match = re.findall('(?s)<div class="notification">(.*?)</span>', html)
-        notificationDiv = match[0]
-        match = re.findall('(?s)<td>(.*?)</td>', notificationDiv)
-        notificationMessage = match[0]
-        if options.verbose == True:
-            print notificationMessage
-    except:
-        pass # Do nothing. We're just checking for notifications.
-
-
-    # Access the sales report page.
-    if options.verbose == True:
-        print 'Accessing sales report web page.'
-    urlSalesReport = 'https://reportingitc.apple.com/sales.faces'
-    html = readHtml(opener, urlSalesReport, options=options)
-
-
-    # Get the form field names needed to download the report.
-    try:
-        match = re.findall('"javax.faces.ViewState" value="(.*?)"', html)
-        viewState = match[0]
-        match = re.findall('theForm:j_id_jsp_[0-9]*_6', html)
-        dailyName = match[0]
-        ajaxName = re.sub('._6', '_2', dailyName)
-        dateName = re.sub('._6', '_8', dailyName)
-        selectName = re.sub('._6', '_32', dailyName)
-        if options.debug == True:
-            print 'viewState: ', viewState
-            print 'dailyName: ', dailyName
-            print 'ajaxName: ', ajaxName
-            print 'dateName: ', dateName
-            print 'selectName:', selectName
-    except:
-        errMessage = 'Unable to load the sales report web page at this time. A number of reasons can cause this including delayed reporting, unsigned contracts, and change to the web site breaking this script. Try again later or sign into iTunes Connect and verify access.'
-        if options.verbose == True:
-            print errMessage
-            raise
-        else:
-            raise ITCException, errMessage
-
-
-    # Get the list of available dates.
-    try:
-        # Note the (?s) is an inline re.DOTALL, makes . match new lines.
-        match = re.findall('(?s)<div class="pickList">(.*?)</div>', html)
-        dateListAvailableDays = re.findall('<option value="(.*?)"', match[0])
-        dateListAvailableWeeks = re.findall('<option value="(.*?)"', match[1])
-        if options.debug == True:
-            print 'dateListAvailableDays: ', dateListAvailableDays
-            print 'dateListAvailableWeeks: ', dateListAvailableWeeks
-    except:
-        errMessage = 'Unable to retrieve the list of available dates.'
-        if options.verbose == True:
-            print errMessage
-            raise
-        else:
-            raise ITCException, errMessage
-
-
-    # Click through from the dashboard to the sales page.
-    webFormSalesReportData = urllib.urlencode({'AJAXREQUEST':ajaxName, 'theForm':'theForm', 'theForm:xyz':'notnormal', 'theForm:vendorType':'Y', 'theForm:datePickerSourceSelectElementSales':dateListAvailableDays[0], 'theForm:weekPickerSourceSelectElement':dateListAvailableWeeks[0], 'javax.faces.ViewState':viewState, dailyName:dailyName, 'theForm:optInVar':'A',  'theForm:dateType':'D', 'theForm:optInVarRender':'false', 'theForm:wklyBool':'false'})
-    html = readHtml(opener, urlSalesReport, webFormSalesReportData, options=options)
-    match = re.findall('"javax.faces.ViewState" value="(.*?)"', html)
-    viewState = match[0]
-
 
     # Set the list of report dates.
     # A better approach is to grab the list of available dates
@@ -385,72 +207,58 @@ def downloadFile(options):
     else:
         reportDates = [datetime.datetime.strptime(options.dateToDownload, '%m/%d/%Y').date()]
 
-    if options.debug == True:
+    if options.debug:
         print 'reportDates: ', reportDates
 
 
     ####
-    if options.verbose == True:
+    if options.verbose:
         print 'Downloading daily sales reports.'
     unavailableCount = 0
     filenames = []
     for downloadReportDate in reportDates:
-        # Set the date within the web page.
-        dateString = downloadReportDate.strftime('%m/%d/%Y')
+        dateString = downloadReportDate.strftime('%Y%m%d')
+        path = os.path.realpath(os.path.dirname(sys.argv[0]))
         
-        if dateString in dateListAvailableDays:
-            if options.verbose == True:
-                print 'Downloading report for: ', dateString
-            webFormSalesReportData = urllib.urlencode({'AJAXREQUEST':ajaxName, 'theForm':'theForm', 'theForm:xyz':'notnormal', 'theForm:vendorType':'Y', 'theForm:datePickerSourceSelectElementSales':dateString, 'theForm:datePickerSourceSelectElementSales':dateString, 'theForm:weekPickerSourceSelectElement':dateListAvailableWeeks[0], 'javax.faces.ViewState':viewState, selectName:selectName})
-            html = readHtml(opener, urlSalesReport, webFormSalesReportData)
-            match = re.findall('"javax.faces.ViewState" value="(.*?)"', html)
-            viewState = match[0]
+        output = subprocess.check_output(['java', '-cp', path, 'Autoingestion', appleId, password, vendorId, 'Sales', 'Daily', 'Summary', dateString])
+        print output
+        lines = output.split('\n')
+        
+        if len(lines) >= 2 and lines[1].lower().startswith('file downloaded successfully'):
+            gzfile = lines[0]
+            # Check for an override of the file name. If found then set the file
+            # name to match the outputFormat.
+            if (options.outputFormat):
+                filename = downloadReportDate.strftime(options.outputFormat)
+            else:
+                filename = gzfile
+            
+            if options.unzipFile:
+                if options.verbose:
+                    print 'Unzipping archive file: ', gzfile
+                infile = gzip.GzipFile(gzfile)
+            else:
+                infile = open(gzfile, 'rb')
+            
+            filename = os.path.join(options.outputDirectory, filename)
+            if options.unzipFile and filename[-3:] == '.gz': #Chop off .gz extension if not needed
+                filename = os.path.splitext( filename )[0]
 
-            # And finally...we're ready to download yesterday's sales report.
-            webFormSalesReportData = urllib.urlencode({'theForm':'theForm', 'theForm:xyz':'notnormal', 'theForm:vendorType':'Y', 'theForm:datePickerSourceSelectElementSales':dateString, 'theForm:weekPickerSourceSelectElement':dateListAvailableWeeks[0], 'javax.faces.ViewState':viewState, 'theForm:downloadLabel2':'theForm:downloadLabel2'})
-            request = urllib2.Request(urlSalesReport, webFormSalesReportData)
-            urlHandle = opener.open(request)
-            try:
-                if options.debug == True:
-                    print urlHandle.info()
-                    
-                # Check for the content-disposition. If present then we know we have a 
-                # file to download. If not present then an AttributeError exception is
-                # thrown and we assume the file is not available for download.
-                filename = urlHandle.info().getheader('content-disposition').split('=')[1]
-                # Check for an override of the file name. If found then change the file
-                # name to match the outputFormat.
-                if (options.outputFormat):
-                    filename = downloadReportDate.strftime(options.outputFormat)
+            if options.verbose:
+                print 'Saving download file:', filename
 
-                filebuffer = urlHandle.read()
-                urlHandle.close()
+            downloadFile = open(filename, 'wb')
+            downloadFile.write(infile.read())
+            downloadFile.close()
+            infile.close()
+            
+            if options.verbose:
+                print 'Deleting archive file: ', gzfile
+            os.remove(gzfile)
 
-                if options.unzipFile == True:
-                    if options.verbose == True:
-                        print 'Unzipping archive file: ', filename
-                    #Use GzipFile to de-gzip the data
-                    ioBuffer = StringIO.StringIO( filebuffer )
-                    gzipIO = gzip.GzipFile( 'rb', fileobj=ioBuffer )
-                    filebuffer = gzipIO.read()
-
-                filename = os.path.join(options.outputDirectory, filename)
-                if options.unzipFile == True and filename[-3:] == '.gz': #Chop off .gz extension if not needed
-                    filename = os.path.splitext( filename )[0]
-
-                if options.verbose == True:
-                    print 'Saving download file:', filename
-
-                downloadFile = open(filename, 'w')
-                downloadFile.write(filebuffer)
-                downloadFile.close()
-
-                filenames.append( filename )
-            except AttributeError:
-                print '%s report is not available - try again later.' % dateString
-                unavailableCount += 1
+            filenames.append( filename )
         else:
-            print '%s report is not available - try again later.' % dateString
+            print 'Report failed to download for', downloadReportDate
             unavailableCount += 1
     # End for downloadReportDate in reportDates:
     ####
@@ -458,9 +266,9 @@ def downloadFile(options):
     if unavailableCount > 0:
         raise ITCException, '%i report(s) not available - try again later' % unavailableCount
 
-    if options.debug == True:
+    if options.debug:
         os.remove(os.path.join(options.outputDirectory, "temp.html"))
-    if options.verbose == True:
+    if options.verbose:
         print '-- end of script --'
 
     return filenames
