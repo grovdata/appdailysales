@@ -21,7 +21,7 @@ Download the script appdailysales.py, install Autoingestion.class, and run the c
     -h     : print this help message and exit (also --help)
     -a uid : your apple id (also --appleId)
     -p pwd : your password (also --password)
-    -v vid : your vendor id (also --vendorId)
+    -V vid : your vendor id (also --vendorId)
     -P     : read the password from stdin (also --passwordStdin)
     -o dir : directory where download file is stored, default is the current working directory (also --outputDirectory)
     -v     : verbose output, default is off (also --verbose)

@@ -2,7 +2,7 @@
 #
 # appdailysales.py
 #
-# iTune Connect Daily Sales Reports Downloader
+# iTunes Connect Daily Sales Reports Downloader
 # Copyright 2008-2011 Kirby Turner
 #
 # Version 3.0
@@ -98,7 +98,7 @@ class ReportOptions:
             return appleId
         elif attrname == 'password':
             return password
-        elif attrname == 'venderId':
+        elif attrname == 'vendorId':
             return vendorId
         elif attrname == 'outputDirectory':
             return outputDirectory
@@ -124,7 +124,7 @@ Options and arguments:
 -h     : print this help message and exit (also --help)
 -a uid : your apple id (also --appleId)
 -p pwd : your password (also --password)
--V vid : your vendor id (also --venderId)
+-V vid : your vendor id (also --vendorId)
 -P     : read the password from stdin (also --passwordStdin)
 -o dir : directory where download file is stored, default is the current working directory (also --outputDirectory)
 -v     : verbose output, default is off (also --verbose)
@@ -150,7 +150,7 @@ def processCmdArgs():
     # Check for command line options. The command line options
     # override the globals set above if present.
     try: 
-        opts, args = getopt.getopt(sys.argv[1:], 'ha:p:V:Po:uvd:D:f:', ['help', 'appleId=', 'password=', 'venderId=', 'passwordStdin', 'outputDirectory=', 'unzip', 'verbose', 'days=', 'date=', 'format=', 'debug'])
+        opts, args = getopt.getopt(sys.argv[1:], 'ha:p:V:Po:uvd:D:f:', ['help', 'appleId=', 'password=', 'vendorId=', 'passwordStdin', 'outputDirectory=', 'unzip', 'verbose', 'days=', 'date=', 'format=', 'debug'])
     except getopt.GetoptError, err:
         #print help information and exit
         print str(err)  # will print something like "option -x not recongized"
@@ -275,7 +275,7 @@ def downloadFile(options):
 
 
 def main():
-    if processCmdArgs() > 0:    # Will exit if usgae requested or invalid argument found.
+    if processCmdArgs() > 0:    # Will exit if usage requested or invalid argument found.
       return 2
       
     # Set report options.
